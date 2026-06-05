@@ -183,6 +183,15 @@
         </div>
 
         <div class="field">
+          <label for="practiceModeSelect">練習モード</label>
+          <select id="practiceModeSelect">
+            <option value="normal">通常</option>
+            <option value="footFocus">脚強調</option>
+            <option value="footOnly">脚のみ</option>
+          </select>
+        </div>
+
+        <div class="field">
           <label for="measureSelect">各音符の小節数</label>
           <select id="measureSelect">
             <option value="1">1小節</option>
@@ -233,6 +242,7 @@
     };
 
     const patternSelect = document.getElementById("patternSelect");
+    const practiceModeSelect = document.getElementById("practiceModeSelect");
     const measureSelect = document.getElementById("measureSelect");
     const bpmSelect = document.getElementById("bpmSelect");
     const startBtn = document.getElementById("startBtn");
@@ -286,23 +296,45 @@
       return buffer;
     }
 
+    function getPracticeMode() {
+      return practiceModeSelect ? practiceModeSelect.value : "normal";
+    }
+
     function scheduleMainClick(time, isAccent) {
+      const practiceMode = getPracticeMode();
+
+      // 「脚のみ」は本編の手音だけを消す。プリカウントは開始位置を分かりやすくするため残す。
+      if (practiceMode === "footOnly" && mode !== "precount") return;
+
       const osc = audioCtx.createOscillator();
+      const lowpass = audioCtx.createBiquadFilter();
       const gain = audioCtx.createGain();
 
-      osc.connect(gain);
+      osc.connect(lowpass);
+      lowpass.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.type = "sine";
 
-      const freq = isAccent ? 1000 : 600;
-      const peak = isAccent ? 0.12 : 0.08;
+      // 手の音色を硬いクリックから、丸いウッドブロック風の短音へ変更。
+      osc.type = "triangle";
+
+      const freq = isAccent ? 720 : 480;
+      const normalPeak = isAccent ? 0.12 : 0.085;
+      // 脚強調では、手は「かすかに分かる」程度まで下げる。
+      const footFocusPeak = isAccent ? 0.018 : 0.012;
+      const peak = practiceMode === "footFocus" ? footFocusPeak : normalPeak;
 
       osc.frequency.setValueAtTime(freq, time);
-      gain.gain.setValueAtTime(peak, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.82, time + 0.055);
+
+      lowpass.frequency.setValueAtTime(isAccent ? 1500 : 1200, time);
+      lowpass.Q.setValueAtTime(0.55, time);
+
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(peak, time + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.105);
 
       osc.start(time);
-      osc.stop(time + 0.08);
+      osc.stop(time + 0.115);
     }
 
     function scheduleBassDrumLikeClick(time) {
@@ -313,8 +345,12 @@
       gain.connect(audioCtx.destination);
       osc.type = "sine";
 
+      const practiceMode = getPracticeMode();
+      // 全体音量を上げ、脚強調では脚音をさらに前に出す。
+      const peak = practiceMode === "normal" ? 0.30 : 0.48;
+
       osc.frequency.setValueAtTime(800, time);
-      gain.gain.setValueAtTime(0.20, time);
+      gain.gain.setValueAtTime(peak, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
 
       osc.start(time);
@@ -348,7 +384,11 @@
       highshelf.connect(gain);
       gain.connect(audioCtx.destination);
 
-      gain.gain.setValueAtTime(0.18, time);
+      const practiceMode = getPracticeMode();
+      // 全体音量を上げ、脚強調ではHHも明確に前に出す。
+      const peak = practiceMode === "normal" ? 0.28 : 0.44;
+
+      gain.gain.setValueAtTime(peak, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.028);
 
       source.start(time);
@@ -697,8 +737,10 @@
 
     function drawFootTimingBeams(now, cx, cy, canvasWidth) {
       const baseInterval = Math.max(activeSecond.interval || 0.25, 0.001);
-      const flashWindow = Math.min(0.16, Math.max(0.055, baseInterval * 0.28));
-      const lineWidth = canvasWidth * 0.92;
+      const practiceMode = getPracticeMode();
+      const flashWindowBase = practiceMode === "normal" ? 0.28 : 0.34;
+      const flashWindow = Math.min(0.16, Math.max(0.055, baseInterval * flashWindowBase));
+      const lineWidth = canvasWidth * (practiceMode === "normal" ? 0.92 : 0.96);
 
       for (const ev of footBeamEvents) {
         const delta = now - ev.time;
@@ -909,6 +951,12 @@
 
     startBtn.addEventListener("click", start);
     stopBtn.addEventListener("click", () => stop(false));
+
+    practiceModeSelect.addEventListener("change", () => {
+      if (!running) {
+        drawClockFace(0);
+      }
+    });
 
     patternSelect.addEventListener("change", () => {
       if (!running) {
