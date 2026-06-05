@@ -358,41 +358,27 @@
     }
 
     function scheduleFootHiHatLikeClick(time) {
-      const source = audioCtx.createBufferSource();
-      source.buffer = noiseBuffer;
-
-      const highpass = audioCtx.createBiquadFilter();
-      highpass.type = "highpass";
-      highpass.frequency.setValueAtTime(6500, time);
-      highpass.Q.setValueAtTime(0.9, time);
-
-      const bandpass = audioCtx.createBiquadFilter();
-      bandpass.type = "bandpass";
-      bandpass.frequency.setValueAtTime(8000, time);
-      bandpass.Q.setValueAtTime(1.8, time);
-
-      const highshelf = audioCtx.createBiquadFilter();
-      highshelf.type = "highshelf";
-      highshelf.frequency.setValueAtTime(7000, time);
-      highshelf.gain.setValueAtTime(4.5, time);
-
+      const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
 
-      source.connect(highpass);
-      highpass.connect(bandpass);
-      bandpass.connect(highshelf);
-      highshelf.connect(gain);
+      osc.connect(gain);
       gain.connect(audioCtx.destination);
+      osc.type = "sine";
 
       const practiceMode = getPracticeMode();
-      // 全体音量を上げ、脚強調ではHHも明確に前に出す。
-      const peak = practiceMode === "normal" ? 0.28 : 0.44;
+      // HHはノイズ系をやめ、BDと同系統の短い電子音にする。
+      // BDより少し高い音程にして、脚の表裏を聞き分けやすくする。
+      const peak = practiceMode === "normal" ? 0.34 : 0.52;
 
-      gain.gain.setValueAtTime(peak, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.028);
+      osc.frequency.setValueAtTime(1050, time);
+      osc.frequency.exponentialRampToValueAtTime(900, time + 0.055);
 
-      source.start(time);
-      source.stop(time + 0.05);
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(peak, time + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.075);
+
+      osc.start(time);
+      osc.stop(time + 0.08);
     }
 
     function scheduleClick(time, isAccent, isSecond = false, secondIndex = 0) {
