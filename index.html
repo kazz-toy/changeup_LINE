@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Changeup Metronome</title>
+  <style>
+    :root{
+      --bg:#111;
+      --panel:#1b1b1b;
+      --panel2:#202020;
+      --text:#f4f4f4;
+      --muted:#8a8a8a;
+      --active-main:#35ff7a;
+      --active-second:#ff2a2a;
+      --border:#333;
+    }
+
+    *{ box-sizing:border-box; }
+
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic","Meiryo",sans-serif;
+      min-height:100vh;
+      display:flex;
+      justify-content:center;
+    }
+
+    .wrap{
+      width:min(100%, 560px);
+      padding:8px 10px 18px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .display-card,
+    .button-card,
+    .control-card{
+      background:var(--panel2);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:12px;
+    }
+
+    .main-visual-wrap{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      margin-bottom:8px;
+    }
+
+    canvas#mainCanvas{
+      display:block;
+      width:min(94vw, 430px);
+      height:min(94vw, 430px);
+      max-width:430px;
+      max-height:430px;
+      background:#161616;
+      border:1px solid #2f2f2f;
+      border-radius:20px;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,0.02);
+    }
+
+    .status{
+      margin-top:8px;
+      background:#181818;
+      border:1px solid #2e2e2e;
+      border-radius:12px;
+      padding:12px 14px;
+      line-height:1.7;
+      min-height:82px;
+    }
+
+    .status-line{
+      font-size:1.3rem;
+      font-weight:700;
+    }
+
+    .muted{
+      color:var(--muted);
+      font-size:0.82rem;
+      margin-top:8px;
+      text-align:center;
+    }
+
+    .buttons{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+
+    button{
+      width:100%;
+      border:none;
+      border-radius:12px;
+      padding:14px 14px;
+      font-size:1rem;
+      font-weight:800;
+      color:var(--text);
+      cursor:pointer;
+      background:#2b2b2b;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+
+    #startBtn{ background:#2a4d31; }
+    #stopBtn{ background:#4a2d2d; }
+
+    #startBtn:active,
+    #stopBtn:active{
+      transform:scale(0.99);
+    }
+
+    .controls{
+      display:grid;
+      gap:10px;
+    }
+
+    .field{
+      display:grid;
+      gap:6px;
+    }
+
+    .field label{
+      font-size:0.90rem;
+      color:#ddd;
+      font-weight:700;
+    }
+
+    select{
+      width:100%;
+      border:none;
+      border-radius:12px;
+      padding:12px 14px;
+      font-size:1rem;
+      background:#2b2b2b;
+      color:var(--text);
+      border:1px solid #3a3a3a;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- 上：メトロノーム＋ステータス -->
+    <div class="display-card">
+      <div class="main-visual-wrap">
+        <canvas id="mainCanvas" width="430" height="430"></canvas>
+      </div>
+
+      <div class="status" id="statusBox">
+        <div class="status-line" id="statusRhythm">4分音符</div>
+        <div class="status-line" id="statusMeasure">1/1小節</div>
+        <div class="status-line" id="statusBeat">1/4拍</div>
+      </div>
+
+      <div class="muted">スタート直後のみ、1小節のプリカウントが入ります。</div>
+    </div>
+
+    <!-- 中：スタート／ストップ -->
+    <div class="button-card">
+      <div class="buttons">
+        <button id="startBtn">スタート</button>
+        <button id="stopBtn">ストップ</button>
+      </div>
+    </div>
+
+    <!-- 下：設定 -->
+    <div class="control-card">
+      <div class="controls">
+        <div class="field">
+          <label for="patternSelect">ハンドパターン</label>
+          <select id="patternSelect">
+            <option value="1">パターン1（4→8→3連→16→6→32→6→16→3連→8）</option>
+            <option value="2">パターン2（4→8→3連→16→6→16→3連→8）</option>
+            <option value="3">パターン3（3連→6連）</option>
+            <option value="4">パターン4（3連のみ）</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="measureSelect">各音符の小節数</label>
+          <select id="measureSelect">
+            <option value="1">1小節</option>
+            <option value="2">2小節</option>
+            <option value="3">3小節</option>
+            <option value="4">4小節</option>
+            <option value="8">8小節</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="bpmSelect">BPM</label>
+          <select id="bpmSelect"></select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const PATTERNS = {
+      1: [1, 2, 3, 4, 6, 8, 6, 4, 3, 2],
+      2: [1, 2, 3, 4, 6, 4, 3, 2],
+      3: [3, 6],
+      4: [3]
+    };
+
+    const RHYTHM_LABEL = {
+      1: "4分音符",
+      2: "8分音符",
+      3: "3連符",
+      4: "16分音符",
+      6: "6連符",
+      8: "32分音符"
+    };
+
+    const CLOCK_ANGLES = {
+      1: [-90],
+      2: [-90, 90],
+      3: [-90, 30, 150],
+      4: [-90, 0, 90, 180],
+      6: [-90, -30, 30, 90, 150, 210],
+      8: [-90, -45, 0, 45, 90, 135, 180, 225]
+    };
+
+    const SECOND_RING_ANGLES = {
+      bd: -90,
+      hh: 90
+    };
+
+    const patternSelect = document.getElementById("patternSelect");
+    const measureSelect = document.getElementById("measureSelect");
+    const bpmSelect = document.getElementById("bpmSelect");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+
+    const mainCanvas = document.getElementById("mainCanvas");
+    const ctx = mainCanvas.getContext("2d");
+
+    const statusRhythm = document.getElementById("statusRhythm");
+    const statusMeasure = document.getElementById("statusMeasure");
+    const statusBeat = document.getElementById("statusBeat");
+
+    for (let i = 20; i <= 200; i++) {
+      const op = document.createElement("option");
+      op.value = String(i);
+      op.textContent = String(i);
+      if (i === 70) op.selected = true;
+      bpmSelect.appendChild(op);
+    }
+
+    let audioCtx = null;
+    let noiseBuffer = null;
+
+    function ensureAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (!noiseBuffer) {
+        noiseBuffer = createNoiseBuffer(audioCtx, 0.06);
+      }
+      return audioCtx;
+    }
+
+    async function resumeAudio() {
+      const ctx = ensureAudio();
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      return ctx;
+    }
+
+    function createNoiseBuffer(context, duration = 0.06) {
+      const sampleRate = context.sampleRate;
+      const frameCount = Math.max(1, Math.floor(sampleRate * duration));
+      const buffer = context.createBuffer(1, frameCount, sampleRate);
+      const data = buffer.getChannelData(0);
+
+      for (let i = 0; i < frameCount; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      return buffer;
+    }
+
+    function scheduleMainClick(time, isAccent) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = "sine";
+
+      const freq = isAccent ? 1000 : 600;
+      const peak = isAccent ? 0.12 : 0.08;
+
+      osc.frequency.setValueAtTime(freq, time);
+      gain.gain.setValueAtTime(peak, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+
+      osc.start(time);
+      osc.stop(time + 0.08);
+    }
+
+    function scheduleBassDrumLikeClick(time) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = "sine";
+
+      osc.frequency.setValueAtTime(800, time);
+      gain.gain.setValueAtTime(0.20, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+
+      osc.start(time);
+      osc.stop(time + 0.08);
+    }
+
+    function scheduleFootHiHatLikeClick(time) {
+      const source = audioCtx.createBufferSource();
+      source.buffer = noiseBuffer;
+
+      const highpass = audioCtx.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.setValueAtTime(6500, time);
+      highpass.Q.setValueAtTime(0.9, time);
+
+      const bandpass = audioCtx.createBiquadFilter();
+      bandpass.type = "bandpass";
+      bandpass.frequency.setValueAtTime(8000, time);
+      bandpass.Q.setValueAtTime(1.8, time);
+
+      const highshelf = audioCtx.createBiquadFilter();
+      highshelf.type = "highshelf";
+      highshelf.frequency.setValueAtTime(7000, time);
+      highshelf.gain.setValueAtTime(4.5, time);
+
+      const gain = audioCtx.createGain();
+
+      source.connect(highpass);
+      highpass.connect(bandpass);
+      bandpass.connect(highshelf);
+      highshelf.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      gain.gain.setValueAtTime(0.18, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.028);
+
+      source.start(time);
+      source.stop(time + 0.05);
+    }
+
+    function scheduleClick(time, isAccent, isSecond = false, secondIndex = 0) {
+      if (!audioCtx) return;
+
+      if (!isSecond) {
+        scheduleMainClick(time, isAccent);
+        return;
+      }
+
+      if (secondIndex === 0) {
+        scheduleBassDrumLikeClick(time);
+      } else {
+        scheduleFootHiHatLikeClick(time);
+      }
+    }
+
+    let running = false;
+    let rafId = 0;
+    let schedulerId = 0;
+
+    let nextMainTime = 0;
+    let nextSecondTime = 0;
+    let scheduleAhead = 0.12;
+    let lookaheadMs = 25;
+
+    let mode = "stopped";
+
+    let stepIndex = 0;
+    let measureInStep = 1;
+    let beatInBar = 1;
+    let mainSubIndex = 0;
+
+    let secondSubIndex = 0;
+    let precountBeat = 1;
+
+    let activeMain = {
+      subdivision: 1,
+      subIndex: -1,
+      onUntil: 0,
+      lastTime: 0,
+      interval: 0.25,
+      moveIndex: 0
+    };
+    let activeSecond = {
+      index: -1,
+      onUntil: 0,
+      lastTime: 0,
+      interval: 0.25,
+      moveIndex: 0
+    };
+
+    const dueVisualEvents = [];
+    const dueStatusEvents = [];
+    const footBeamEvents = [];
+
+    function getMeasuresPerStep() {
+      return parseInt(measureSelect.value, 10);
+    }
+
+    function getPatternArray() {
+      return PATTERNS[patternSelect.value];
+    }
+
+    function resetMainState() {
+      stepIndex = 0;
+      measureInStep = 1;
+      beatInBar = 1;
+      mainSubIndex = 0;
+      secondSubIndex = 0;
+    }
+
+    function setStatus(rhythmText, measureText, beatText) {
+      statusRhythm.textContent = rhythmText;
+      statusMeasure.textContent = measureText;
+      statusBeat.textContent = beatText;
+    }
+
+    function advanceMainStepIfNeeded() {
+      const measuresPerStep = getMeasuresPerStep();
+
+      beatInBar++;
+      if (beatInBar > 4) {
+        beatInBar = 1;
+        measureInStep++;
+        if (measureInStep > measuresPerStep) {
+          measureInStep = 1;
+          stepIndex++;
+          if (stepIndex >= getPatternArray().length) {
+            stepIndex = 0;
+          }
+        }
+      }
+    }
+
+    function queueMainStatusEvent(time, subdivision, measureNow, measuresPerStep, beatNow) {
+      dueStatusEvents.push({
+        time,
+        rhythmText: `${RHYTHM_LABEL[subdivision]}`,
+        measureText: `${measureNow}/${measuresPerStep}小節`,
+        beatText: `${beatNow}/4拍`
+      });
+    }
+
+    function queuePrecountStatusEvent(time, beatNow) {
+      dueStatusEvents.push({
+        time,
+        rhythmText: "4分音符",
+        measureText: "1/1小節",
+        beatText: `${beatNow}/4拍`
+      });
+    }
+
+    function schedulePrecountEvents(now) {
+      const beatDur = 60 / parseInt(bpmSelect.value, 10);
+
+      while (nextMainTime < now + scheduleAhead && mode === "precount") {
+        const beatNow = precountBeat;
+        const accent = (beatNow === 1);
+
+        scheduleClick(nextMainTime, accent, false);
+
+        dueVisualEvents.push({
+          time: nextMainTime,
+          kind: "main",
+          subdivision: 1,
+          subIndex: 0,
+          interval: beatDur,
+          onUntil: nextMainTime + Math.min(0.12, beatDur * 0.7)
+        });
+
+        queuePrecountStatusEvent(nextMainTime, beatNow);
+
+        precountBeat++;
+        if (precountBeat > 4) {
+          mode = "main";
+          resetMainState();
+          nextMainTime += beatDur;
+          nextSecondTime = nextMainTime;
+          break;
+        } else {
+          nextMainTime += beatDur;
+        }
+      }
+    }
+
+    function scheduleMainEvents(now) {
+      const bpm = parseInt(bpmSelect.value, 10);
+      const beatDur = 60 / bpm;
+      const secondDur = beatDur / 2;
+
+      while (mode === "main" && (
+        nextMainTime < now + scheduleAhead ||
+        nextSecondTime < now + scheduleAhead
+      )) {
+        if (nextMainTime <= nextSecondTime) {
+          const subdivision = getPatternArray()[stepIndex];
+          const subDur = beatDur / subdivision;
+
+          const currentTime = nextMainTime;
+          const currentSubIndex = mainSubIndex;
+          const currentBeat = beatInBar;
+          const currentMeasure = measureInStep;
+          const measuresPerStep = getMeasuresPerStep();
+
+          const isBeatHead = (currentSubIndex === 0);
+          const isAccent = (currentSubIndex === 0);
+
+          scheduleClick(currentTime, isAccent, false);
+
+          dueVisualEvents.push({
+            time: currentTime,
+            kind: "main",
+            subdivision,
+            subIndex: currentSubIndex,
+            interval: subDur,
+            onUntil: currentTime + Math.min(0.10, subDur * 0.75)
+          });
+
+          if (isBeatHead) {
+            queueMainStatusEvent(
+              currentTime,
+              subdivision,
+              currentMeasure,
+              measuresPerStep,
+              currentBeat
+            );
+          }
+
+          mainSubIndex++;
+          if (mainSubIndex >= subdivision) {
+            mainSubIndex = 0;
+            advanceMainStepIfNeeded();
+          }
+
+          nextMainTime += subDur;
+        } else {
+          const currentTime = nextSecondTime;
+          const idx = secondSubIndex;
+          const isAccent = (idx === 0);
+
+          scheduleClick(currentTime, isAccent, true, idx);
+
+          dueVisualEvents.push({
+            time: currentTime,
+            kind: "second",
+            secondIndex: idx,
+            interval: secondDur,
+            onUntil: currentTime + Math.min(0.035, secondDur * 0.22)
+          });
+
+          secondSubIndex = (secondSubIndex + 1) % 2;
+          nextSecondTime += secondDur;
+        }
+      }
+    }
+
+    function processDueEvents(now) {
+      while (dueVisualEvents.length && dueVisualEvents[0].time <= now) {
+        const ev = dueVisualEvents.shift();
+        if (ev.kind === "main") {
+          activeMain.subdivision = ev.subdivision;
+          activeMain.subIndex = ev.subIndex;
+          activeMain.onUntil = ev.onUntil;
+          activeMain.lastTime = ev.time;
+          activeMain.interval = ev.interval;
+          activeMain.moveIndex = ev.subIndex;
+        } else if (ev.kind === "second") {
+          activeSecond.index = ev.secondIndex;
+          activeSecond.onUntil = ev.onUntil;
+          activeSecond.lastTime = ev.time;
+          activeSecond.interval = ev.interval;
+          activeSecond.moveIndex = ev.secondIndex;
+          footBeamEvents.push({
+            time: ev.time,
+            secondIndex: ev.secondIndex,
+            interval: ev.interval
+          });
+        }
+      }
+
+      while (dueStatusEvents.length && dueStatusEvents[0].time <= now) {
+        const ev = dueStatusEvents.shift();
+        setStatus(ev.rhythmText, ev.measureText, ev.beatText);
+      }
+
+      if (activeMain.onUntil <= now) {
+        activeMain.subIndex = -1;
+      }
+      if (activeSecond.onUntil <= now) {
+        activeSecond.index = -1;
+      }
+    }
+
+    function schedulerLoop() {
+      if (!running || !audioCtx) return;
+      const now = audioCtx.currentTime;
+
+      if (mode === "precount") {
+        schedulePrecountEvents(now);
+      }
+      if (mode === "main") {
+        scheduleMainEvents(now);
+      }
+    }
+
+    function drawDot(x, y, radius, activeColor, isActive, glowBlur, baseColor = "#5a5a5a") {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = isActive ? activeColor : baseColor;
+      ctx.shadowColor = isActive ? activeColor : "transparent";
+      ctx.shadowBlur = isActive ? glowBlur : 0;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(3, radius * 0.38), 0, Math.PI * 2);
+      ctx.fillStyle = isActive ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.10)";
+      ctx.fill();
+    }
+
+    function drawSmallMovingDot(cx, cy, ringRadius, angleDeg, color, radius, glow) {
+      const rad = angleDeg * Math.PI / 180;
+      const x = cx + Math.cos(rad) * ringRadius;
+      const y = cy + Math.sin(rad) * ringRadius;
+
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = glow;
+      ctx.fill();
+    }
+
+    function getMainMovingAngle(now) {
+      const subdivision = activeMain.subdivision || 1;
+      const interval = Math.max(activeMain.interval || 0.001, 0.001);
+      const elapsed = Math.max(0, now - activeMain.lastTime);
+      const progress = Math.min(1, elapsed / interval);
+      const index = activeMain.moveIndex || 0;
+      return -90 + 360 * ((index + progress) / subdivision);
+    }
+
+    function getSecondMovingAngle(now) {
+      const interval = Math.max(activeSecond.interval || 0.001, 0.001);
+      const elapsed = Math.max(0, now - activeSecond.lastTime);
+      const progress = Math.min(1, elapsed / interval);
+      const index = activeSecond.moveIndex || 0;
+      return -90 + 180 * (index + progress);
+    }
+
+    function drawHorizontalGlowLine(y, color, alpha, cx, width) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 26;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 16;
+      ctx.beginPath();
+      ctx.moveTo(cx - width / 2, y);
+      ctx.lineTo(cx + width / 2, y);
+      ctx.stroke();
+
+      ctx.shadowBlur = 14;
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(cx - width / 2, y);
+      ctx.lineTo(cx + width / 2, y);
+      ctx.stroke();
+
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255,255,255,0.78)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - width / 2, y);
+      ctx.lineTo(cx + width / 2, y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawFootTimingBeams(now, cx, cy, canvasWidth) {
+      const baseInterval = Math.max(activeSecond.interval || 0.25, 0.001);
+      const flashWindow = Math.min(0.16, Math.max(0.055, baseInterval * 0.28));
+      const lineWidth = canvasWidth * 0.92;
+
+      for (const ev of footBeamEvents) {
+        const delta = now - ev.time;
+        if (delta < 0 || delta > flashWindow) continue;
+
+        const progress = delta / flashWindow;
+        const alpha = Math.pow(1 - progress, 0.55);
+        const color = ev.secondIndex === 0 ? "#ff2a2a" : "#35ff7a";
+
+        // 脚の発音タイミングで、中心点を通る水平線だけを瞬間的に光らせる。
+        drawHorizontalGlowLine(cy, color, alpha, cx, lineWidth);
+      }
+
+      while (footBeamEvents.length && now - footBeamEvents[0].time > flashWindow) {
+        footBeamEvents.shift();
+      }
+    }
+
+    function drawClockFace(now) {
+      const w = mainCanvas.width;
+      const h = mainCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const cx = w / 2;
+      const cy = h / 2;
+
+      const outerRadius = 170;
+      const innerRadius = 95;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, outerRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = "#303030";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, innerRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = "#2a2a2a";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#888";
+      ctx.fill();
+
+      drawFootTimingBeams(now, cx, cy, w);
+
+      const subdivision = activeMain.subdivision || 1;
+      const mainAngles = CLOCK_ANGLES[subdivision];
+
+      for (let i = 0; i < mainAngles.length; i++) {
+        const rad = mainAngles[i] * Math.PI / 180;
+        const x = cx + Math.cos(rad) * outerRadius;
+        const y = cy + Math.sin(rad) * outerRadius;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = "rgba(255,255,255,0.06)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        drawDot(
+          x, y,
+          16,
+          "#35ff7a",
+          i === activeMain.subIndex,
+          20,
+          "#5a5a5a"
+        );
+      }
+
+      const secondPositions = [
+        { angle: SECOND_RING_ANGLES.bd, activeIndex: 0 },
+        { angle: SECOND_RING_ANGLES.hh, activeIndex: 1 }
+      ];
+
+      for (const pos of secondPositions) {
+        const rad = pos.angle * Math.PI / 180;
+        const x = cx + Math.cos(rad) * innerRadius;
+        const y = cy + Math.sin(rad) * innerRadius;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = "rgba(255,255,255,0.05)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        drawDot(
+          x, y,
+          16,
+          "#ff2a2a",
+          pos.activeIndex === activeSecond.index,
+          26,
+          "#6a6a6a"
+        );
+      }
+
+      drawSmallMovingDot(cx, cy, outerRadius, getMainMovingAngle(now), "#35ff7a", 5.5, 11);
+      drawSmallMovingDot(cx, cy, innerRadius, getSecondMovingAngle(now), "#ff2a2a", 4.8, 13);
+
+      ctx.beginPath();
+      ctx.arc(cx, cy - outerRadius, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#c8c8c8";
+      ctx.fill();
+    }
+
+    function renderLoop() {
+      if (!running || !audioCtx) return;
+      const now = audioCtx.currentTime;
+
+      processDueEvents(now);
+      drawClockFace(now);
+
+      rafId = requestAnimationFrame(renderLoop);
+    }
+
+    async function start() {
+      await resumeAudio();
+
+      stop(true);
+
+      running = true;
+      mode = "precount";
+      precountBeat = 1;
+      resetMainState();
+
+      const now = audioCtx.currentTime;
+      const bpm = parseInt(bpmSelect.value, 10);
+      const beatDur = 60 / bpm;
+
+      const startLead = 0.08;
+      nextMainTime = now + startLead;
+      nextSecondTime = now + startLead;
+
+      dueVisualEvents.length = 0;
+      dueStatusEvents.length = 0;
+      footBeamEvents.length = 0;
+
+      activeMain = {
+        subdivision: getPatternArray()[0],
+        subIndex: -1,
+        onUntil: 0,
+        lastTime: nextMainTime,
+        interval: beatDur,
+        moveIndex: 0
+      };
+      activeSecond = {
+        index: -1,
+        onUntil: 0,
+        lastTime: nextSecondTime,
+        interval: beatDur / 2,
+        moveIndex: 0
+      };
+
+      setStatus("4分音符", "1/1小節", "1/4拍");
+
+      schedulerId = setInterval(schedulerLoop, lookaheadMs);
+      schedulerLoop();
+      renderLoop();
+    }
+
+    function stop(silent = false) {
+      running = false;
+      mode = "stopped";
+
+      if (schedulerId) {
+        clearInterval(schedulerId);
+        schedulerId = 0;
+      }
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+
+      dueVisualEvents.length = 0;
+      dueStatusEvents.length = 0;
+      footBeamEvents.length = 0;
+
+      activeMain = {
+        subdivision: getPatternArray()[0],
+        subIndex: -1,
+        onUntil: 0,
+        lastTime: 0,
+        interval: 0.25,
+        moveIndex: 0
+      };
+      activeSecond = {
+        index: -1,
+        onUntil: 0,
+        lastTime: 0,
+        interval: 0.25,
+        moveIndex: 0
+      };
+
+      drawClockFace(0);
+
+      if (!silent) {
+        setStatus(
+          `${RHYTHM_LABEL[getPatternArray()[0]]}`,
+          `1/${getMeasuresPerStep()}小節`,
+          "1/4拍"
+        );
+      }
+    }
+
+    startBtn.addEventListener("click", start);
+    stopBtn.addEventListener("click", () => stop(false));
+
+    patternSelect.addEventListener("change", () => {
+      if (!running) {
+        activeMain.subdivision = getPatternArray()[0];
+        activeMain.subIndex = -1;
+        activeMain.moveIndex = 0;
+        activeSecond.index = -1;
+        activeSecond.moveIndex = 0;
+        drawClockFace(0);
+        setStatus(
+          `${RHYTHM_LABEL[getPatternArray()[0]]}`,
+          `1/${getMeasuresPerStep()}小節`,
+          "1/4拍"
+        );
+      }
+    });
+
+    measureSelect.addEventListener("change", () => {
+      if (!running) {
+        setStatus(
+          `${RHYTHM_LABEL[getPatternArray()[0]]}`,
+          `1/${getMeasuresPerStep()}小節`,
+          "1/4拍"
+        );
+      }
+    });
+
+    window.addEventListener("resize", () => {
+      drawClockFace(0);
+    });
+
+    ensureAudio();
+    activeMain.subdivision = getPatternArray()[0];
+    activeMain.moveIndex = 0;
+    activeSecond.moveIndex = 0;
+    drawClockFace(0);
+    setStatus(`${RHYTHM_LABEL[getPatternArray()[0]]}`, `1/${getMeasuresPerStep()}小節`, "1/4拍");
+  </script>
+</body>
+</html>
